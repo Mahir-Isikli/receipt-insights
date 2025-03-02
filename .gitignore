@@ -1,6 +1,47 @@
-venv/
-.env
+# Secrets and configuration
 .streamlit/secrets.toml
+.env
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Uploaded files
+uploads/
+*.jpg
+*.jpeg
+*.png
+*.pdf
+
+# Python
 __pycache__/
-uploads/*
-!uploads/.gitkeep
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

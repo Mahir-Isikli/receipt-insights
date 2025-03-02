@@ -2,6 +2,48 @@
 
 A smart tool that helps you understand your shopping habits and make healthier choices by analyzing your grocery receipts.
 
+## Installation & Setup
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/Mahir-Isikli/receipt-insights.git
+cd receipt-insights
+```
+
+### 2. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Set up Configuration
+Create a `.streamlit` folder in your project root and add a `secrets.toml` file with the following structure:
+```toml
+# .streamlit/secrets.toml
+GOOGLE_API_KEY = "your-gemini-api-key"
+DATABASE_URL = "your-database-connection-string"
+```
+
+To get these credentials:
+1. Get your Gemini API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Set up your PostgreSQL database and get the connection string
+
+### 4. Run the Application
+```bash
+streamlit run app.py
+```
+
+## Project Structure
+```
+receipt_analyzer/
+├── .streamlit/
+│   └── secrets.toml    # Configuration secrets (not in git)
+├── .venv/              # Virtual environment (not in git)
+├── uploads/           # Uploaded receipts (not in git)
+├── app.py             # Main application code
+├── requirements.txt   # Python dependencies
+└── README.md         # This file
+```
+
 ## What it does
 
 ### 1. Receipt Upload
