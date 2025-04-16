@@ -1,103 +1,115 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useRef, ChangeEvent } from 'react';
+
+type Status = 'idle' | 'uploading' | 'processing' | 'success' | 'error';
+
+export default function HomePage() {
+  const [status, setStatus] = useState<Status>('idle');
+  const [statusMessage, setStatusMessage] = useState<string>('Ready to upload receipt.');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setStatus('uploading');
+    setStatusMessage(`Uploading ${file.name}...`);
+
+    const formData = new FormData();
+    formData.append('receiptImage', file);
+
+    try {
+      setStatus('processing');
+      setStatusMessage('Processing receipt...');
+
+      const response = await fetch('/api/process-receipt', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const result = await response.json(); // Assuming the API returns JSON
+        setStatus('success');
+        setStatusMessage(result.message || 'Receipt processed successfully!'); 
+      } else {
+        const errorResult = await response.json().catch(() => ({ message: 'Failed to process receipt. Please try again.' }));
+        setStatus('error');
+        setStatusMessage(`Error: ${response.statusText} - ${errorResult.message}`);
+        console.error('API Error:', response.status, response.statusText, errorResult);
+      }
+
+    } catch (error) {
+      console.error("Network or other error:", error);
+      setStatus('error');
+      setStatusMessage('An error occurred while uploading. Please check your connection and try again.');
+    }
+
+    // Reset file input value to allow uploading the same file again
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
+
+    // Reset status after a delay unless it's still processing (which shouldn't happen here but safe check)
+    if (status !== 'processing') {
+      setTimeout(() => {
+        setStatus('idle');
+        setStatusMessage('Ready to upload receipt.');
+      }, 5000);
+    }
+  };
+
+  const handleUploadClick = () => {
+    // Trigger the hidden file input
+    fileInputRef.current?.click();
+  };
+
+  const getStatusColor = () => {
+    switch (status) {
+      case 'success': return 'text-green-600';
+      case 'error': return 'text-red-600';
+      case 'uploading': // Keep blue during upload/processing
+      case 'processing': return 'text-blue-600';
+      default: return 'text-gray-600';
+    }
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+      <div className="w-full max-w-md text-center">
+        <h1 className="text-2xl font-bold mb-6 text-gray-800">Receipt Processor</h1>
+        
+        {/* Hidden File Input */}
+        <input 
+          type="file"
+          accept="image/*"
+          capture="environment" // Use 'user' for front camera, 'environment' for back
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          className="hidden"
+          disabled={status === 'uploading' || status === 'processing'}
         />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+        {/* Upload Button */}
+        <button
+          onClick={handleUploadClick}
+          disabled={status === 'uploading' || status === 'processing'}
+          className={`w-full px-6 py-4 text-lg font-semibold text-white rounded-lg shadow-md transition-colors duration-200 ${
+            status === 'uploading' || status === 'processing'
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50'
+          }`}
         >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          {status === 'uploading' ? 'Uploading...' : status === 'processing' ? 'Processing...' : 'Upload Receipt Image'}
+        </button>
+
+        {/* Status Display */}
+        <p className={`mt-6 text-md ${getStatusColor()}`}>
+          {statusMessage}
+        </p>
+      </div>
     </div>
   );
 }
