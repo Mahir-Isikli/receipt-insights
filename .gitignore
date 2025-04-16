@@ -47,3 +47,7 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# PWA build artifacts
+public/sw.js
+public/workbox-*.js

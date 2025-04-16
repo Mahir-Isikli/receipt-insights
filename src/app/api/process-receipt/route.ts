@@ -132,6 +132,7 @@ export async function POST(request: Request) {
 
     if (!result.response) {
       console.error("Gemini response was blocked.", result);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Structure of blocked response/result isn't strictly typed
       const blockReason = (result as any)?.promptFeedback?.blockReason ?? 'Unknown reason';
       return NextResponse.json({ message: `Content blocked by safety filters: ${blockReason}` }, { status: 400 });
     }
@@ -224,7 +225,7 @@ export async function POST(request: Request) {
     // Catch errors from initial setup, FormData parsing, Gemini call, or DB interaction re-throw
     console.error('[API Process Receipt Error]:', error);
     let errorMessage = 'An unexpected error occurred during processing.';
-    let statusCode = 500;
+    const statusCode = 500;
 
     if (error instanceof Error) {
         errorMessage = `Error: ${error.message}`;
