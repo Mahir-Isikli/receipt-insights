@@ -1,21 +1,16 @@
 {
-  "name": "Mobile Receipt Capture",
-  "short_name": "Receipts",
-  "description": "Quickly capture and process receipt images.",
+  "name": "FIRE",
+  "short_name": "FIRE",
+  "description": "Mobile Receipt Management App",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#000000",
+  "theme_color": "#ffffff",
   "icons": [
     {
-      "src": "/icons/icon-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/icons/icon-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
     }
   ]
 } 
