@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 // Import Recharts components
 import { 
     ResponsiveContainer, Tooltip, Legend, 
@@ -113,12 +113,12 @@ export default function Dashboard() {
     } finally {
       setMonthsLoading(false);
     }
-  }, []); // Remove the selectedYear, selectedMonth dependency
+  }, [selectedMonth, selectedYear]); // Add the missing dependencies
 
   // Fetch available months on component mount only
   useEffect(() => {
     fetchAvailableMonths();
-  }, []); // Only run once on mount
+  }, [fetchAvailableMonths]); // Add fetchAvailableMonths dependency
 
   const handleMonthChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
       const [yearStr, monthStr] = event.target.value.split('-');
