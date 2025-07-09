@@ -2,6 +2,164 @@ import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Pool, PoolClient } from 'pg';
 
+// Retry utility function with exponential backoff
+interface RetryOptions {
+  maxAttempts: number;
+  baseDelay: number;
+  maxDelay: number;
+  backoffMultiplier: number;
+}
+
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  options: RetryOptions = {
+    maxAttempts: 3,
+    baseDelay: 1000,
+    maxDelay: 10000,
+    backoffMultiplier: 2
+  }
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 1; attempt <= options.maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      
+      // Don't retry on non-retryable errors
+      if (isNonRetryableError(error)) {
+        throw error;
+      }
+      
+      // If this was the last attempt, throw the error
+      if (attempt === options.maxAttempts) {
+        throw error;
+      }
+      
+      // Calculate delay with exponential backoff
+      const delay = Math.min(
+        options.baseDelay * Math.pow(options.backoffMultiplier, attempt - 1),
+        options.maxDelay
+      );
+      
+      console.log(`Attempt ${attempt} failed, retrying in ${delay}ms...`, (error as Error).message);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError!;
+}
+
+// Check if an error should not be retried
+function isNonRetryableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  
+  // Check for GoogleGenerativeAI errors with specific status codes
+  const errorWithStatus = error as Error & { status?: number };
+  if (errorWithStatus.status !== undefined) {
+    const status = errorWithStatus.status;
+    // Don't retry on client errors (4xx except 429)
+    if (status >= 400 && status < 500 && status !== 429) {
+      return true;
+    }
+  }
+  
+  // Don't retry on parsing errors or validation errors
+  if (error.message.includes('Failed to parse') || 
+      error.message.includes('validation failed') ||
+      error.message.includes('Content blocked')) {
+    return true;
+  }
+  
+  return false;
+}
+
+// Enhanced error classification for user-friendly messages
+function classifyError(error: unknown): { type: string; userMessage: string; shouldRetry: boolean } {
+  if (!(error instanceof Error)) {
+    return {
+      type: 'unknown',
+      userMessage: 'An unexpected error occurred. Please try again.',
+      shouldRetry: false
+    };
+  }
+
+  // GoogleGenerativeAI specific errors
+  const errorWithStatus = error as Error & { status?: number };
+  if (errorWithStatus.status !== undefined) {
+    const status = errorWithStatus.status;
+    switch (status) {
+      case 503:
+        return {
+          type: 'service_unavailable',
+          userMessage: 'The AI service is temporarily overloaded. Please try again in a few minutes.',
+          shouldRetry: true
+        };
+      case 429:
+        return {
+          type: 'rate_limit',
+          userMessage: 'Too many requests. Please wait a moment and try again.',
+          shouldRetry: true
+        };
+      case 400:
+        return {
+          type: 'invalid_request',
+          userMessage: 'The image could not be processed. Please ensure it\'s a clear receipt image.',
+          shouldRetry: false
+        };
+      case 401:
+        return {
+          type: 'auth_error',
+          userMessage: 'Authentication error. Please contact support.',
+          shouldRetry: false
+        };
+      default:
+        if (status >= 500) {
+          return {
+            type: 'server_error',
+            userMessage: 'The AI service is experiencing issues. Please try again later.',
+            shouldRetry: true
+          };
+        }
+    }
+  }
+
+  // Content filtering errors
+  if (error.message.includes('Content blocked')) {
+    return {
+      type: 'content_blocked',
+      userMessage: 'The image was blocked by safety filters. Please try a different image.',
+      shouldRetry: false
+    };
+  }
+
+  // Parsing errors
+  if (error.message.includes('Failed to parse')) {
+    return {
+      type: 'parsing_error',
+      userMessage: 'The AI could not extract valid data from the receipt. Please try a clearer image.',
+      shouldRetry: false
+    };
+  }
+
+  // Database errors
+  if (error.message.includes('Database operation failed')) {
+    return {
+      type: 'database_error',
+      userMessage: 'Failed to save receipt data. Please try again.',
+      shouldRetry: true
+    };
+  }
+
+  // Default fallback
+  return {
+    type: 'general_error',
+    userMessage: 'Processing failed. Please try again or contact support if the issue persists.',
+    shouldRetry: false
+  };
+}
+
 // Ensure API key and DB URL are loaded correctly
 const apiKey = process.env.GOOGLE_API_KEY;
 const dbUrl = process.env.NEON_DATABASE_URL;
@@ -96,6 +254,8 @@ interface ProcessResult {
   status: 'success' | 'error';
   receiptId?: string;
   message: string;
+  errorType?: string;
+  shouldRetry?: boolean;
 }
 
 // --- Function to process a single receipt image ---
@@ -108,7 +268,7 @@ async function processSingleReceipt(imageFile: File, genAI: GoogleGenerativeAI, 
       // 1. Gemini Processing
       // =====================
       const model = genAI.getGenerativeModel({
-          model: "gemini-1.5-flash", // Using 1.5 Flash
+          model: "gemini-2.5-flash",
           generationConfig: {
               responseMimeType: "application/json",
           },
@@ -128,7 +288,15 @@ async function processSingleReceipt(imageFile: File, genAI: GoogleGenerativeAI, 
       `;
 
       console.log(`[${fileName}] Sending request to Gemini...`);
-      const result = await model.generateContent([prompt, imagePart]);
+      const result = await retryWithBackoff(
+        () => model.generateContent([prompt, imagePart]),
+        {
+          maxAttempts: 3,
+          baseDelay: 1000,
+          maxDelay: 10000,
+          backoffMultiplier: 2
+        }
+      );
 
       if (!result.response) {
           console.error(`[${fileName}] Gemini response was blocked.`, result);
@@ -222,11 +390,16 @@ async function processSingleReceipt(imageFile: File, genAI: GoogleGenerativeAI, 
 
   } catch (error) {
       console.error(`[${fileName}] Error processing receipt:`, error);
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+      
+      // Use enhanced error classification for better user messages
+      const errorInfo = classifyError(error);
+      
       return {
           fileName: fileName,
           status: 'error',
-          message: `Failed to process ${fileName}: ${errorMessage}`
+          message: `${fileName}: ${errorInfo.userMessage}`,
+          errorType: errorInfo.type,
+          shouldRetry: errorInfo.shouldRetry
       };
   } finally {
       // Ensure the client is always released for this specific file processing
@@ -274,11 +447,13 @@ export async function POST(request: Request) {
         } else {
             // Handle unexpected errors during the promise execution itself (outside processSingleReceipt's try/catch)
             console.error(`[${fileName}] Unexpected error in Promise.allSettled:`, result.reason);
-            const errorMessage = result.reason instanceof Error ? result.reason.message : 'Unknown settlement error.';
+            const errorInfo = classifyError(result.reason);
             return {
                 fileName: fileName,
                 status: 'error',
-                message: `Failed processing ${fileName}: ${errorMessage}`
+                message: `${fileName}: ${errorInfo.userMessage}`,
+                errorType: errorInfo.type,
+                shouldRetry: errorInfo.shouldRetry
             };
         }
     });

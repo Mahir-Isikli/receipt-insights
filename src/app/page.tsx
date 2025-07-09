@@ -12,6 +12,8 @@ interface ProcessResult {
   status: 'success' | 'error';
   receiptId?: string;
   message: string;
+  errorType?: string;
+  shouldRetry?: boolean;
 }
 
 export default function HomePage() {
@@ -155,15 +157,65 @@ export default function HomePage() {
       {results.length > 0 && (
         <div className="mt-4 p-4 border border-gray-200 rounded-lg bg-white text-left text-sm">
           <h3 className="font-semibold mb-2 text-gray-700">Processing Results:</h3>
-          <ul className="space-y-1">
+          <ul className="space-y-2">
             {results.map((result, index) => (
-              <li key={index} className={`flex justify-between items-center p-1 rounded ${
-                  result.status === 'success' ? 'bg-green-50' : 'bg-red-50'
+              <li key={index} className={`p-3 rounded-lg border ${
+                  result.status === 'success' 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-red-50 border-red-200'
               }`}>
-                <span className="truncate pr-2 text-gray-600" title={result.fileName}>{result.fileName}</span>
-                <span className={`font-medium ${result.status === 'success' ? 'text-green-700' : 'text-red-700'}`}>
-                  {result.status === 'success' ? 'Success' : 'Error'}
-                </span>
+                <div className="flex justify-between items-start mb-1">
+                  <span className="font-medium text-gray-800 truncate pr-2" title={result.fileName}>
+                    {result.fileName}
+                  </span>
+                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                    result.status === 'success' 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    {result.status === 'success' ? 'Success' : 'Failed'}
+                  </span>
+                </div>
+                
+                <div className="text-xs text-gray-600 mt-1">
+                  {result.status === 'success' && result.receiptId && (
+                    <span className="text-green-700">Receipt ID: {result.receiptId}</span>
+                  )}
+                  
+                  {result.status === 'error' && (
+                    <div className="space-y-1">
+                      <div className="text-red-700">{result.message}</div>
+                      {result.shouldRetry && (
+                        <div className="flex items-center text-orange-600">
+                          <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          <span>This error may be temporary - try uploading again</span>
+                        </div>
+                      )}
+                      {result.errorType === 'service_unavailable' && (
+                        <div className="text-blue-600 text-xs">
+                          💡 Tip: The AI service is overloaded. Wait a few minutes before retrying.
+                        </div>
+                      )}
+                      {result.errorType === 'rate_limit' && (
+                        <div className="text-blue-600 text-xs">
+                          💡 Tip: You&apos;re making requests too quickly. Wait a moment before trying again.
+                        </div>
+                      )}
+                      {result.errorType === 'invalid_request' && (
+                        <div className="text-blue-600 text-xs">
+                          💡 Tip: Try taking a clearer photo with better lighting and ensure the entire receipt is visible.
+                        </div>
+                      )}
+                      {result.errorType === 'parsing_error' && (
+                        <div className="text-blue-600 text-xs">
+                          💡 Tip: The receipt text may be unclear. Try a higher quality image or different angle.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
