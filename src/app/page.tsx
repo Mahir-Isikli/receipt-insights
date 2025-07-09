@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useRef, ChangeEvent } from 'react';
-import Dashboard from '@/components/Dashboard'; // Import the new Dashboard component
+import Dashboard from '@/components/Dashboard';
+import ReceiptView from '@/components/ReceiptView';
 
 type Status = 'idle' | 'uploading' | 'processing' | 'success' | 'error' | 'partial_success';
-type ActiveTab = 'upload' | 'dashboard'; // Type for managing tabs
+type ActiveTab = 'upload' | 'receipts' | 'dashboard';
 
 // Type matching the backend response structure for each file
 interface ProcessResult {
@@ -21,7 +22,7 @@ export default function HomePage() {
   const [statusMessage, setStatusMessage] = useState<string>('Ready to upload receipt(s).');
   const [results, setResults] = useState<ProcessResult[]>([]); 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<ActiveTab>('upload'); // State for active tab
+  const [activeTab, setActiveTab] = useState<ActiveTab>('upload');
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -100,12 +101,6 @@ export default function HomePage() {
         fileInputRef.current.value = '';
       }
     }
-
-    // Optional: Auto-reset status after a delay, keeping results visible
-    // setTimeout(() => {
-    //   setStatus('idle');
-    //   setStatusMessage('Ready to upload receipt(s).');
-    // }, 10000); 
   };
 
   const handleUploadClick = () => {
@@ -115,7 +110,7 @@ export default function HomePage() {
   const getStatusColor = () => {
     switch (status) {
       case 'success': return 'text-green-600';
-      case 'partial_success': return 'text-yellow-600'; // Indicate mixed results
+      case 'partial_success': return 'text-yellow-600';
       case 'error': return 'text-red-600';
       case 'uploading':
       case 'processing': return 'text-blue-600';
@@ -123,10 +118,10 @@ export default function HomePage() {
     }
   };
 
-  // Component for the Upload Section (extracted for clarity)
+  // Component for the Upload Section
   const UploadSection = () => (
     <div className="w-full max-w-md text-center">
-      <h1 className="text-2xl font-bold mb-6 text-gray-800">Receipt Processor</h1>
+      <h1 className="text-2xl font-bold mb-6 text-gray-800 font-roboto">Receipt Processor</h1>
       
       <input 
         type="file"
@@ -141,7 +136,7 @@ export default function HomePage() {
       <button
         onClick={handleUploadClick}
         disabled={status === 'uploading' || status === 'processing'}
-        className={`w-full px-6 py-4 text-lg font-semibold text-white rounded-lg shadow-md transition-colors duration-200 ${
+        className={`w-full px-6 py-4 text-lg font-semibold text-white rounded-lg shadow-md transition-colors duration-200 font-roboto ${
           status === 'uploading' || status === 'processing'
             ? 'bg-gray-400 cursor-not-allowed'
             : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50'
@@ -150,12 +145,12 @@ export default function HomePage() {
         {status === 'uploading' ? 'Uploading...' : status === 'processing' ? 'Processing...' : 'Upload Receipt Image(s)'}
       </button>
 
-      <p className={`mt-6 text-md font-medium ${getStatusColor()}`}>
+      <p className={`mt-6 text-md font-medium ${getStatusColor()} font-roboto`}>
         {statusMessage}
       </p>
 
       {results.length > 0 && (
-        <div className="mt-4 p-4 border border-gray-200 rounded-lg bg-white text-left text-sm">
+        <div className="mt-4 p-4 border border-gray-200 rounded-lg bg-white text-left text-sm font-roboto">
           <h3 className="font-semibold mb-2 text-gray-700">Processing Results:</h3>
           <ul className="space-y-2">
             {results.map((result, index) => (
@@ -193,26 +188,6 @@ export default function HomePage() {
                           <span>This error may be temporary - try uploading again</span>
                         </div>
                       )}
-                      {result.errorType === 'service_unavailable' && (
-                        <div className="text-blue-600 text-xs">
-                          💡 Tip: The AI service is overloaded. Wait a few minutes before retrying.
-                        </div>
-                      )}
-                      {result.errorType === 'rate_limit' && (
-                        <div className="text-blue-600 text-xs">
-                          💡 Tip: You&apos;re making requests too quickly. Wait a moment before trying again.
-                        </div>
-                      )}
-                      {result.errorType === 'invalid_request' && (
-                        <div className="text-blue-600 text-xs">
-                          💡 Tip: Try taking a clearer photo with better lighting and ensure the entire receipt is visible.
-                        </div>
-                      )}
-                      {result.errorType === 'parsing_error' && (
-                        <div className="text-blue-600 text-xs">
-                          💡 Tip: The receipt text may be unclear. Try a higher quality image or different angle.
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -225,44 +200,58 @@ export default function HomePage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Tab Navigation - Hidden on mobile (below md), visible on desktop */}
-      <div className="hidden md:flex justify-center pt-4 pb-2 border-b border-gray-200 bg-white shadow-sm">
-        <nav className="flex space-x-4">
-          <button
-            onClick={() => setActiveTab('upload')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
-              activeTab === 'upload' 
-                ? 'bg-blue-100 text-blue-700' 
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
-            }`}
-          >
-            Upload Receipts
-          </button>
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors duration-150 ${
-              activeTab === 'dashboard' 
-                ? 'bg-blue-100 text-blue-700' 
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-800'
-            }`}
-          >
-            Dashboard
-          </button>
-        </nav>
+    <div className="min-h-screen bg-gray-50 font-roboto">
+      {/* Mobile-first Tab Navigation */}
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="px-4">
+          <div className="flex">
+            <button
+              onClick={() => setActiveTab('upload')}
+              className={`flex-1 py-3 px-4 text-sm font-medium transition-colors font-roboto ${
+                activeTab === 'upload'
+                  ? 'text-blue-600 bg-blue-50 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Upload
+            </button>
+            <button
+              onClick={() => setActiveTab('receipts')}
+              className={`flex-1 py-3 px-4 text-sm font-medium transition-colors font-roboto ${
+                activeTab === 'receipts'
+                  ? 'text-blue-600 bg-blue-50 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Receipts
+            </button>
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`flex-1 py-3 px-4 text-sm font-medium transition-colors font-roboto ${
+                activeTab === 'dashboard'
+                  ? 'text-blue-600 bg-blue-50 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Analytics
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Content Area - Conditionally render based on active tab */}
-      <div className="p-4 flex justify-center">
-         {/* On mobile (below md), always show UploadSection */}
-         <div className="md:hidden w-full max-w-md">
+      {/* Main Content Area */}
+      <div className="flex-1">
+        {activeTab === 'upload' && (
+          <div className="flex items-center justify-center p-4 min-h-[calc(100vh-64px)]">
             <UploadSection />
-         </div>
-         {/* On desktop (md and up), show content based on activeTab */}
-         <div className="hidden md:block w-full max-w-4xl"> {/* Adjust max-width as needed for dashboard */} 
-            {activeTab === 'upload' && <UploadSection />} 
-            {activeTab === 'dashboard' && <Dashboard />} 
-         </div>
+          </div>
+        )}
+        {activeTab === 'receipts' && (
+          <ReceiptView onBack={() => setActiveTab('upload')} />
+        )}
+        {activeTab === 'dashboard' && (
+          <Dashboard />
+        )}
       </div>
     </div>
   );

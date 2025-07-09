@@ -38,6 +38,7 @@ interface MonthOption {
   year: number;
   month: number; // 1-12
   label: string;
+  receiptCount?: number; // Optional: number of receipts in this month
 }
 
 export default function Dashboard() {
@@ -45,25 +46,79 @@ export default function Dashboard() {
   const [status, setStatus] = useState<FetchStatus>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  // --- Month Selector State and Logic (Re-added) ---
+  // --- Month Selector State and Logic (Updated to use API) ---
   const [currentSystemDate] = useState(new Date());
   const [selectedYear, setSelectedYear] = useState<number>(currentSystemDate.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(currentSystemDate.getMonth() + 1);
+  const [availableMonths, setAvailableMonths] = useState<MonthOption[]>([]);
+  const [monthsLoading, setMonthsLoading] = useState<boolean>(true);
 
-  const availableMonths = useMemo(() => {
-    const year = currentSystemDate.getFullYear();
-    const currentMonth = currentSystemDate.getMonth() + 1;
-    const options: MonthOption[] = [];
-    const monthLabels = [
+  // Fetch available months from API
+  const fetchAvailableMonths = useCallback(async () => {
+    setMonthsLoading(true);
+    try {
+      const response = await fetch('/api/available-months');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch available months: ${response.statusText}`);
+      }
+      const result = await response.json();
+      
+      if (result.months && result.months.length > 0) {
+        setAvailableMonths(result.months);
+        
+        // Only set initial selection if we don't have a valid selection yet
+        // Check if current selection is valid in the available months
+        const currentSelection = result.months.find((m: MonthOption) => 
+          m.year === selectedYear && m.month === selectedMonth
+        );
+        
+        // If no valid selection, select the most recent month (first in DESC ordered list)
+        if (!currentSelection && result.months.length > 0) {
+          const mostRecent = result.months[0];
+          setSelectedYear(mostRecent.year);
+          setSelectedMonth(mostRecent.month);
+        }
+      } else {
+        // No data available, fallback to current month
+        const currentYear = new Date().getFullYear();
+        const currentMonth = new Date().getMonth() + 1;
+        const monthLabels = [
+          'January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'
+        ];
+        
+        setAvailableMonths([{
+          year: currentYear,
+          month: currentMonth,
+          label: `${monthLabels[currentMonth - 1]} ${currentYear}`,
+          receiptCount: 0
+        }]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch available months:', err);
+      // Fallback to current month on error
+      const currentYear = new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1;
+      const monthLabels = [
         'January', 'February', 'March', 'April', 'May', 'June',
         'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    if (currentMonth !== 2) options.push({ year: year, month: 2, label: `February ${year}` });
-    if (currentMonth !== 3 && currentMonth !== 2) options.push({ year: year, month: 3, label: `March ${year}` });
-    options.push({ year: year, month: currentMonth, label: `${monthLabels[currentMonth - 1]} ${year}` });
-    options.sort((a, b) => a.month - b.month);
-    return options;
-  }, [currentSystemDate]);
+      ];
+      
+      setAvailableMonths([{
+        year: currentYear,
+        month: currentMonth,
+        label: `${monthLabels[currentMonth - 1]} ${currentYear}`,
+        receiptCount: 0
+      }]);
+    } finally {
+      setMonthsLoading(false);
+    }
+  }, []); // Remove the selectedYear, selectedMonth dependency
+
+  // Fetch available months on component mount only
+  useEffect(() => {
+    fetchAvailableMonths();
+  }, []); // Only run once on mount
 
   const handleMonthChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
       const [yearStr, monthStr] = event.target.value.split('-');
@@ -173,13 +228,18 @@ export default function Dashboard() {
                id="month-select"
                value={selectedDropdownValue} 
                onChange={handleMonthChange}
-               className="p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+               disabled={monthsLoading}
+               className="p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
              >
-               {availableMonths.map(opt => (
-                 <option key={`${opt.year}-${opt.month}`} value={`${opt.year}-${opt.month}`}>
-                   {opt.label}
-                 </option>
-               ))}
+               {monthsLoading ? (
+                 <option>Loading months...</option>
+               ) : (
+                 availableMonths.map(opt => (
+                   <option key={`${opt.year}-${opt.month}`} value={`${opt.year}-${opt.month}`}>
+                     {opt.label} {opt.receiptCount ? `(${opt.receiptCount} receipts)` : ''}
+                   </option>
+                 ))
+               )}
              </select>
            </div>
          </div>
