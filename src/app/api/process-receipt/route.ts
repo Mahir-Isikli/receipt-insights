@@ -256,6 +256,7 @@ interface ProcessResult {
   message: string;
   errorType?: string;
   shouldRetry?: boolean;
+  debugInfo?: string;
 }
 
 // --- Function to process a single receipt image ---
@@ -268,7 +269,7 @@ async function processSingleReceipt(imageFile: File, genAI: GoogleGenerativeAI, 
       // 1. Gemini Processing
       // =====================
       const model = genAI.getGenerativeModel({
-          model: "gemini-2.0-flash",
+          model: "gemini-3-flash",
           generationConfig: {
               responseMimeType: "application/json",
           },
@@ -391,15 +392,17 @@ async function processSingleReceipt(imageFile: File, genAI: GoogleGenerativeAI, 
   } catch (error) {
       console.error(`[${fileName}] Error processing receipt:`, error);
       
-      // Use enhanced error classification for better user messages
+      // Get actual error message for debugging
+      const actualError = error instanceof Error ? error.message : String(error);
       const errorInfo = classifyError(error);
       
       return {
           fileName: fileName,
           status: 'error',
-          message: `${fileName}: ${errorInfo.userMessage}`,
+          message: `${fileName}: ${actualError}`,
           errorType: errorInfo.type,
-          shouldRetry: errorInfo.shouldRetry
+          shouldRetry: errorInfo.shouldRetry,
+          debugInfo: actualError
       };
   } finally {
       // Ensure the client is always released for this specific file processing
@@ -447,13 +450,15 @@ export async function POST(request: Request) {
         } else {
             // Handle unexpected errors during the promise execution itself (outside processSingleReceipt's try/catch)
             console.error(`[${fileName}] Unexpected error in Promise.allSettled:`, result.reason);
+            const actualError = result.reason instanceof Error ? result.reason.message : String(result.reason);
             const errorInfo = classifyError(result.reason);
             return {
                 fileName: fileName,
                 status: 'error',
-                message: `${fileName}: ${errorInfo.userMessage}`,
+                message: `${fileName}: ${actualError}`,
                 errorType: errorInfo.type,
-                shouldRetry: errorInfo.shouldRetry
+                shouldRetry: errorInfo.shouldRetry,
+                debugInfo: actualError
             };
         }
     });
