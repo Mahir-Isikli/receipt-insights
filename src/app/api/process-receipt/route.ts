@@ -269,7 +269,7 @@ async function processSingleReceipt(imageFile: File, genAI: GoogleGenerativeAI, 
       // 1. Gemini Processing
       // =====================
       const model = genAI.getGenerativeModel({
-          model: "gemini-3-flash",
+          model: "gemini-3-flash-preview",
           generationConfig: {
               responseMimeType: "application/json",
           },
