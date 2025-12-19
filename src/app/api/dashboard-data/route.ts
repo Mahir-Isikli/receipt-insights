@@ -1,189 +1,195 @@
 import { Pool } from 'pg';
 import { NextResponse, NextRequest } from 'next/server';
 
-// Initialize Neon PG client
 const pool = new Pool({
   connectionString: process.env.NEON_DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false, // Required for Neon connection
-  },
+  ssl: { rejectUnauthorized: false },
 });
 
-// Define the structure for category spending
 interface CategorySpending {
-    category: string | null; // Category can be null if not set
-    total_amount: number;
+  category: string | null;
+  total_amount: number;
 }
 
-// Interface for spending by day data point
 interface SpendingByDay {
-    day: number;
-    total_amount: number;
+  day: number;
+  total_amount: number;
 }
 
-// Define structure for Treemap nodes
 interface TreemapNode {
-    name: string;
-    size?: number; // Size for leaf nodes
-    children?: TreemapNode[]; // Children for parent nodes
+  name: string;
+  size?: number;
 }
 
-// Define the structure for the overall dashboard data
 interface DashboardData {
-    totalSpending: number;
-    spendingByDay: SpendingByDay[];
-    treemapData: TreemapNode[];
-    totalReceiptsProcessed: number;
-    averageTransactionValue: number;
-    month: string;
+  totalSpending: number;
+  spendingByDay: SpendingByDay[];
+  treemapData: TreemapNode[];
+  totalReceiptsProcessed: number;
+  averageTransactionValue: number;
+  month: string;
+  period: string;
+}
+
+type TimePeriod = 'this_month' | '3_months' | '6_months' | 'all';
+
+function getDateRangeForPeriod(period: TimePeriod): { startDate: Date | null; endDate: Date | null; label: string } {
+  const now = new Date();
+  switch (period) {
+    case 'this_month':
+      return {
+        startDate: new Date(now.getFullYear(), now.getMonth(), 1),
+        endDate: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
+        label: now.toLocaleString('default', { month: 'long', year: 'numeric' })
+      };
+    case '3_months':
+      return {
+        startDate: new Date(now.getFullYear(), now.getMonth() - 2, 1),
+        endDate: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
+        label: 'Last 3 months'
+      };
+    case '6_months':
+      return {
+        startDate: new Date(now.getFullYear(), now.getMonth() - 5, 1),
+        endDate: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
+        label: 'Last 6 months'
+      };
+    case 'all':
+    default:
+      return { startDate: null, endDate: null, label: 'All time' };
+  }
 }
 
 export async function GET(req: NextRequest) {
   const client = await pool.connect();
-
-  // Get year and month from query parameters
   const searchParams = req.nextUrl.searchParams;
+  
+  // Support both old API (year/month) and new API (period)
+  const period = searchParams.get('period') as TimePeriod | null;
   const yearParam = searchParams.get('year');
   const monthParam = searchParams.get('month');
 
-  let targetYear: number;
-  let targetMonth: number;
+  let dateFilter = '';
+  let queryParams: (string | number)[] = [];
+  let periodLabel = '';
 
-  // Validate and parse parameters, or default to current date
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1; // getMonth is 0-indexed
-
-  targetYear = yearParam ? parseInt(yearParam, 10) : currentYear;
-  targetMonth = monthParam ? parseInt(monthParam, 10) : currentMonth;
-
-  // Basic validation (could be more robust)
-  if (isNaN(targetYear) || isNaN(targetMonth) || targetMonth < 1 || targetMonth > 12) {
-    targetYear = currentYear;
-    targetMonth = currentMonth;
+  if (period) {
+    // New period-based API
+    const { startDate, endDate, label } = getDateRangeForPeriod(period);
+    periodLabel = label;
+    
+    if (startDate && endDate) {
+      dateFilter = `AND purchase_datetime >= $1 AND purchase_datetime <= $2`;
+      queryParams = [startDate.toISOString(), endDate.toISOString()];
+    }
+  } else if (yearParam && monthParam) {
+    // Legacy month-based API
+    const targetYear = parseInt(yearParam, 10);
+    const targetMonth = parseInt(monthParam, 10);
+    const targetDate = new Date(targetYear, targetMonth - 1);
+    periodLabel = targetDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+    
+    dateFilter = `AND EXTRACT(MONTH FROM purchase_datetime) = $1 AND EXTRACT(YEAR FROM purchase_datetime) = $2`;
+    queryParams = [targetMonth, targetYear];
+  } else {
+    // Default to this month
+    const now = new Date();
+    periodLabel = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+    dateFilter = `AND EXTRACT(MONTH FROM purchase_datetime) = $1 AND EXTRACT(YEAR FROM purchase_datetime) = $2`;
+    queryParams = [now.getMonth() + 1, now.getFullYear()];
   }
 
-  // Determine the month string for the response based on target date
-  const targetDate = new Date(targetYear, targetMonth - 1); // Month is 0-indexed for Date constructor
-  const monthString = targetDate.toLocaleString('default', { month: 'long', year: 'numeric' });
-
   try {
-    // --- Queries for Target Month --- Use Parameters ---
-    const queryParams = [targetMonth, targetYear];
+    // Optimized: Combined query for totals
+    const totalsQuery = `
+      SELECT 
+        COALESCE(SUM(total_amount), 0) as total_spending,
+        COUNT(*) as total_receipts
+      FROM receipts
+      WHERE processing_status = 'COMPLETE' ${dateFilter}`;
+    
+    const totalsResult = await client.query(totalsQuery, queryParams);
+    const totalSpending = parseFloat(totalsResult.rows[0]?.total_spending || '0');
+    const totalReceiptsProcessed = parseInt(totalsResult.rows[0]?.total_receipts || '0', 10);
 
-    // 1. Total Spending
-    const totalSpendingResult = await client.query<{ sum: number | null }>(
-      `SELECT SUM(total_amount)
-       FROM receipts
-       WHERE processing_status = 'COMPLETE'
-         AND EXTRACT(MONTH FROM purchase_datetime) = $1
-         AND EXTRACT(YEAR FROM purchase_datetime) = $2;`,
-       queryParams // Pass parameters
-    );
-    const totalSpending = totalSpendingResult.rows[0]?.sum ?? 0;
+    // Category spending
+    const categoryQuery = `
+      SELECT li.category::text, SUM(li.item_cost) as total_amount
+      FROM line_items li
+      JOIN receipts r ON li.receipt_id = r.receipt_id
+      WHERE r.processing_status = 'COMPLETE' ${dateFilter.replace(/purchase_datetime/g, 'r.purchase_datetime')}
+      GROUP BY li.category
+      ORDER BY total_amount DESC`;
+    
+    const categoryResult = await client.query<CategorySpending>(categoryQuery, queryParams);
+    
+    const treemapData: TreemapNode[] = categoryResult.rows
+      .filter(item => item.total_amount > 0)
+      .map(item => ({
+        name: item.category || 'Uncategorized',
+        size: parseFloat(parseFloat(String(item.total_amount)).toFixed(2))
+      }));
 
-    // 2. Spending by Category (using line_items)
-    const spendingByCategoryResult = await client.query<CategorySpending>(
-      `SELECT
-         li.category::text,  -- Cast enum to text for JSON serialization
-         SUM(li.item_cost) as total_amount
-       FROM line_items li
-       JOIN receipts r ON li.receipt_id = r.receipt_id
-       WHERE r.processing_status = 'COMPLETE'
-         AND EXTRACT(MONTH FROM r.purchase_datetime) = $1
-         AND EXTRACT(YEAR FROM r.purchase_datetime) = $2
-       GROUP BY li.category;`,
-      queryParams // Pass parameters
-    );
-    const spendingByCategory = spendingByCategoryResult.rows;
-     // Handle cases where category might be NULL in the database
-     spendingByCategory.forEach(item => {
-        if (item.category === null) {
-            item.category = 'Uncategorized'; 
-        }
-     });
+    // Spending by day (only for single month views or recent data)
+    let spendingByDay: SpendingByDay[] = [];
+    
+    if (period === 'this_month' || (!period && yearParam && monthParam)) {
+      const dayQuery = `
+        SELECT EXTRACT(DAY FROM purchase_datetime) as day, SUM(total_amount) as sum
+        FROM receipts
+        WHERE processing_status = 'COMPLETE' ${dateFilter}
+        GROUP BY EXTRACT(DAY FROM purchase_datetime)
+        ORDER BY day`;
+      
+      const dayResult = await client.query(dayQuery, queryParams);
+      spendingByDay = dayResult.rows.map(row => ({
+        day: parseInt(row.day),
+        total_amount: parseFloat(parseFloat(String(row.sum || 0)).toFixed(2))
+      }));
+    } else if (period === '3_months' || period === '6_months') {
+      // For multi-month views, group by month instead
+      const monthQuery = `
+        SELECT 
+          TO_CHAR(purchase_datetime, 'Mon') as month_name,
+          EXTRACT(MONTH FROM purchase_datetime) as month_num,
+          SUM(total_amount) as sum
+        FROM receipts
+        WHERE processing_status = 'COMPLETE' ${dateFilter}
+        GROUP BY TO_CHAR(purchase_datetime, 'Mon'), EXTRACT(MONTH FROM purchase_datetime)
+        ORDER BY month_num`;
+      
+      const monthResult = await client.query(monthQuery, queryParams);
+      spendingByDay = monthResult.rows.map(row => ({
+        day: parseInt(row.month_num),
+        total_amount: parseFloat(parseFloat(String(row.sum || 0)).toFixed(2))
+      }));
+    }
 
-    // 3. Total Receipts Processed
-    const totalReceiptsResult = await client.query<{ count: string }>( // Count returns string
-      `SELECT COUNT(*)
-       FROM receipts
-       WHERE processing_status = 'COMPLETE'
-         AND EXTRACT(MONTH FROM purchase_datetime) = $1
-         AND EXTRACT(YEAR FROM purchase_datetime) = $2;`,
-      queryParams // Pass parameters
-    );
-    // Parse count string to integer
-    const totalReceiptsProcessed = parseInt(totalReceiptsResult.rows[0]?.count ?? '0', 10);
+    const averageTransactionValue = totalReceiptsProcessed > 0 
+      ? parseFloat((totalSpending / totalReceiptsProcessed).toFixed(2)) 
+      : 0;
 
-    // 4. Spending by Day (using receipts total_amount)
-    const spendingByDayResult = await client.query<{ day: number; sum: number | null }>(
-      `SELECT
-         EXTRACT(DAY FROM purchase_datetime) as day,
-         SUM(total_amount) as sum
-       FROM receipts
-       WHERE processing_status = 'COMPLETE'
-         AND EXTRACT(MONTH FROM purchase_datetime) = $1
-         AND EXTRACT(YEAR FROM purchase_datetime) = $2
-       GROUP BY EXTRACT(DAY FROM purchase_datetime)
-       ORDER BY day;`,
-      queryParams
-    );
-    // Process results, converting sum to number and handling nulls
-    const spendingByDay: SpendingByDay[] = spendingByDayResult.rows.map(row => ({
-        day: row.day,
-        total_amount: parseFloat(String(row.sum ?? 0)) // Convert potential string/null to number
-    }));
-
-    // --- Process Data for Treemap Chart ---
-    const treemapChildren: TreemapNode[] = spendingByCategory
-        .map(item => {
-            const size = parseFloat(String(item.total_amount)); // Ensure size is number
-            return {
-                name: item.category || 'Uncategorized',
-                size: size > 0 ? size : undefined // Treemap expects positive size; omit if zero/negative
-            };
-        })
-        .filter(item => item.size !== undefined); // Filter out items with no size
-
-    // Structure for Recharts Treemap often requires a single root object in the array
-    // If treemapChildren is empty, provide a default structure or handle in frontend
-    const treemapData: TreemapNode[] = treemapChildren.length > 0 
-        ? treemapChildren 
-        : []; // Or potentially: [{ name: "No Categories", size: 1 }] to show something
-
-    // Convert totalSpending to a number *before* calculating average and formatting
-    const totalSpendingNumber = parseFloat(String(totalSpending));
-
-    // 5. Average Transaction Value
-    const averageTransactionValue = totalReceiptsProcessed > 0
-                                      ? totalSpendingNumber / totalReceiptsProcessed // Use the number version
-                                      : 0;
-
-    // --- Construct Response ---
     const dashboardData: DashboardData = {
-        totalSpending: parseFloat(totalSpendingNumber.toFixed(2)),
-        treemapData: treemapData.map(node => ({ // Ensure size formatting
-            ...node,
-            size: node.size ? parseFloat(node.size.toFixed(2)) : undefined
-        })),
-        spendingByDay: spendingByDay.map(item => ({ 
-            ...item,
-            total_amount: parseFloat(item.total_amount.toFixed(2))
-        })),
-        totalReceiptsProcessed: totalReceiptsProcessed,
-        averageTransactionValue: parseFloat(averageTransactionValue.toFixed(2)),
-        month: monthString,
+      totalSpending: parseFloat(totalSpending.toFixed(2)),
+      treemapData,
+      spendingByDay,
+      totalReceiptsProcessed,
+      averageTransactionValue,
+      month: periodLabel,
+      period: period || 'custom'
     };
 
     return NextResponse.json(dashboardData);
 
   } catch (error) {
     console.error('Error fetching dashboard data:', error);
-    // Consider more specific error handling based on error type
-    return NextResponse.json({ message: 'Failed to fetch dashboard data', error: (error as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { message: 'Failed to fetch dashboard data', error: (error as Error).message }, 
+      { status: 500 }
+    );
   } finally {
-    client.release(); // Release the client back to the pool
+    client.release();
   }
 }
 
-// Ensure route segment is dynamic
 export const dynamic = 'force-dynamic'; 

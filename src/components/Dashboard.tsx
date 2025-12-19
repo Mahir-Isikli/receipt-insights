@@ -1,27 +1,24 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-// Import Recharts components
 import { 
-    ResponsiveContainer, Tooltip, Legend, 
+    ResponsiveContainer, Tooltip,
     AreaChart, Area, XAxis, YAxis, CartesianGrid, 
-    Treemap
+    PieChart, Pie, Cell
 } from 'recharts';
 import { TooltipProps } from 'recharts';
 import { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 
-// Interfaces from backend
 interface TreemapNode {
     name: string;
     size?: number; 
-    children?: TreemapNode[];
 }
+
 interface SpendingByDay {
     day: number;
     total_amount: number;
 }
 
-// Update DashboardData interface to match API response
 interface DashboardData {
     totalSpending: number;
     spendingByDay: SpendingByDay[];
@@ -29,121 +26,40 @@ interface DashboardData {
     totalReceiptsProcessed: number;
     averageTransactionValue: number;
     month: string;
+    period?: string;
 }
 
 type FetchStatus = 'idle' | 'loading' | 'success' | 'error';
+type TimePeriod = 'this_month' | '3_months' | '6_months' | 'all';
 
-// Keep MonthOption for the selector logic
-interface MonthOption {
-  year: number;
-  month: number; // 1-12
-  label: string;
-  receiptCount?: number; // Optional: number of receipts in this month
-}
+const TIME_PERIODS: { id: TimePeriod; label: string; shortLabel: string }[] = [
+  { id: 'this_month', label: 'This Month', shortLabel: 'Month' },
+  { id: '3_months', label: 'Last 3 Months', shortLabel: '3M' },
+  { id: '6_months', label: 'Last 6 Months', shortLabel: '6M' },
+  { id: 'all', label: 'All Time', shortLabel: 'All' },
+];
+
+const PIE_COLORS = ['#101010', '#404040', '#606060', '#808080', '#9f9f9f', '#bfbfbf', '#d0d0d0', '#e0e0e0'];
 
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [status, setStatus] = useState<FetchStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('this_month');
 
-  // --- Month Selector State and Logic (Updated to use API) ---
-  const [currentSystemDate] = useState(new Date());
-  const [selectedYear, setSelectedYear] = useState<number>(currentSystemDate.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<number>(currentSystemDate.getMonth() + 1);
-  const [availableMonths, setAvailableMonths] = useState<MonthOption[]>([]);
-  const [monthsLoading, setMonthsLoading] = useState<boolean>(true);
-
-  // Fetch available months from API
-  const fetchAvailableMonths = useCallback(async () => {
-    setMonthsLoading(true);
-    try {
-      const response = await fetch('/api/available-months');
-      if (!response.ok) {
-        throw new Error(`Failed to fetch available months: ${response.statusText}`);
-      }
-      const result = await response.json();
-      
-      if (result.months && result.months.length > 0) {
-        setAvailableMonths(result.months);
-        
-        // Only set initial selection if we don't have a valid selection yet
-        // Check if current selection is valid in the available months
-        const currentSelection = result.months.find((m: MonthOption) => 
-          m.year === selectedYear && m.month === selectedMonth
-        );
-        
-        // If no valid selection, select the most recent month (first in DESC ordered list)
-        if (!currentSelection && result.months.length > 0) {
-          const mostRecent = result.months[0];
-          setSelectedYear(mostRecent.year);
-          setSelectedMonth(mostRecent.month);
-        }
-      } else {
-        // No data available, fallback to current month
-        const currentYear = new Date().getFullYear();
-        const currentMonth = new Date().getMonth() + 1;
-        const monthLabels = [
-          'January', 'February', 'March', 'April', 'May', 'June',
-          'July', 'August', 'September', 'October', 'November', 'December'
-        ];
-        
-        setAvailableMonths([{
-          year: currentYear,
-          month: currentMonth,
-          label: `${monthLabels[currentMonth - 1]} ${currentYear}`,
-          receiptCount: 0
-        }]);
-      }
-    } catch (err) {
-      console.error('Failed to fetch available months:', err);
-      // Fallback to current month on error
-      const currentYear = new Date().getFullYear();
-      const currentMonth = new Date().getMonth() + 1;
-      const monthLabels = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
-      ];
-      
-      setAvailableMonths([{
-        year: currentYear,
-        month: currentMonth,
-        label: `${monthLabels[currentMonth - 1]} ${currentYear}`,
-        receiptCount: 0
-      }]);
-    } finally {
-      setMonthsLoading(false);
-    }
-  }, [selectedMonth, selectedYear]); // Add the missing dependencies
-
-  // Fetch available months on component mount only
-  useEffect(() => {
-    fetchAvailableMonths();
-  }, [fetchAvailableMonths]); // Add fetchAvailableMonths dependency
-
-  const handleMonthChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-      const [yearStr, monthStr] = event.target.value.split('-');
-      setSelectedYear(parseInt(yearStr, 10));
-      setSelectedMonth(parseInt(monthStr, 10));
-  };
-  const selectedDropdownValue = `${selectedYear}-${selectedMonth}`;
-  // --- End Month Selector Logic ---
-
-  // --- Data Fetching (Uses Selector State) ---
-  const fetchData = useCallback(async (year: number, month: number) => {
+  const fetchData = useCallback(async (period: TimePeriod) => {
     setStatus('loading');
     setError(null);
-    setData(null); 
     try {
-      const response = await fetch(`/api/dashboard-data?year=${year}&month=${month}`);
+      const response = await fetch(`/api/dashboard-data?period=${period}`);
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || 'Failed to load data');
       }
       const result: DashboardData = await response.json();
       setData(result);
       setStatus('success');
     } catch (err) {
-      console.error("Failed to fetch dashboard data:", err);
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
       setStatus('error');
       setData(null); 
@@ -151,175 +67,267 @@ export default function Dashboard() {
   }, []); 
 
   useEffect(() => {
-    if (selectedYear && selectedMonth) {
-      fetchData(selectedYear, selectedMonth);
-    }
-  }, [selectedYear, selectedMonth, fetchData]);
-  // --- End Data Fetching ---
+    fetchData(selectedPeriod);
+  }, [selectedPeriod, fetchData]);
 
-  // --- Formatting and Tooltips ---
   const formatCurrency = (amount: number) => {
-    // Changed locale to 'de-DE' for Euro formatting
     return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount);
   };
 
-  // Custom Tooltip for Area Chart
+  const formatCurrencyShort = (amount: number) => {
+    if (amount >= 1000) return `${(amount / 1000).toFixed(1)}k`;
+    return amount.toFixed(0);
+  };
+
   const renderCustomAreaTooltip = ({ active, payload, label }: TooltipProps<ValueType, NameType>) => {
-    if (active && payload && payload.length) {
-      // Access value safely, assuming payload[0].value is the intended numeric value
+    if (active && payload?.length) {
       const value = typeof payload[0].value === 'number' ? payload[0].value : 0;
       return (
-        <div className="bg-white p-2 border border-gray-300 rounded shadow-sm text-sm">
-          <p className="font-semibold">{`Day ${label}: ${formatCurrency(value)}`}</p>
+        <div className="glass-card px-3 py-2 text-sm">
+          <p className="text-[var(--text-primary)] font-medium">Day {label}</p>
+          <p className="text-mono text-[var(--accent-gold)]">{formatCurrency(value)}</p>
         </div>
       );
     }
     return null;
   };
 
-  // Custom Tooltip for Treemap
-  const renderCustomTreemapTooltip = ({ active, payload }: TooltipProps<ValueType, NameType>) => {
-    // The payload for Treemap might be structured differently
-    if (active && payload && payload.length && payload[0].payload) {
-        // Assuming the structure based on your previous code
-        const data = payload[0].payload as TreemapNode; // Use the existing TreemapNode type
-        const size = data.size ?? 0;
-        return (
-            <div className="bg-white p-2 border border-gray-300 rounded shadow-sm text-sm">
-                <p className="font-semibold">{`${data.name}: ${formatCurrency(size)}`}</p>
-            </div>
-        );
+  const renderCustomPieTooltip = ({ active, payload }: TooltipProps<ValueType, NameType>) => {
+    if (active && payload?.length) {
+      const data = payload[0].payload;
+      return (
+        <div className="glass-card px-3 py-2 text-sm">
+          <p className="text-[var(--text-primary)] font-medium capitalize">{data.name.replace('_', ' ')}</p>
+          <p className="text-mono text-[var(--accent-gold)]">{formatCurrency(data.size)}</p>
+        </div>
+      );
     }
     return null;
   };
-  // --- End Formatting and Tooltips ---
 
   if (status === 'loading' || status === 'idle') {
     return (
-      <div className="flex justify-center items-center p-10">
-        <p className="text-gray-600 text-lg">Loading dashboard data...</p>
-        {/* Add a spinner here if desired */}
+      <div className="min-h-[calc(100vh-57px)] bg-[var(--bg-primary)] flex items-center justify-center">
+        <div className="text-center">
+          <svg className="w-8 h-8 mx-auto mb-4 text-[var(--accent-gold)] animate-spin" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+          </svg>
+          <p className="text-[var(--text-secondary)]">Loading insights...</p>
+        </div>
       </div>
     );
   }
 
   if (status === 'error') {
     return (
-      <div className="flex justify-center items-center p-10 bg-red-50 border border-red-200 rounded-lg">
-        <p className="text-red-700 text-lg">Error loading dashboard: {error}</p>
+      <div className="min-h-[calc(100vh-57px)] bg-[var(--bg-primary)] p-6">
+        <div className="max-w-2xl mx-auto">
+          <div className="card-elevated p-8 text-center">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-[var(--accent-rose)]/10 mb-4">
+              <svg className="w-7 h-7 text-[var(--accent-rose)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h3 className="text-display text-xl text-[var(--text-primary)] mb-2">Failed to load insights</h3>
+            <p className="text-[var(--text-secondary)]">{error}</p>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (status === 'success' && data) {
-    const areaChartData = data.spendingByDay;
-    const treemapChartData = data.treemapData;
+    const pieData = data.treemapData.map(item => ({
+      name: item.name,
+      size: item.size || 0,
+    })).sort((a, b) => b.size - a.size);
+
+    const totalCategories = pieData.reduce((sum, item) => sum + item.size, 0);
 
     return (
-      <div className="p-6 bg-gray-50 min-h-[calc(100vh-10rem)] space-y-8">
-        {/* Header and Month Selector */}
-         <div className="flex justify-between items-center mb-6">
-           <h2 className="text-2xl font-semibold text-gray-800">
-             Financial Dashboard {data ? `(${data.month})` : ''} 
-           </h2>
-           <div>
-             <label htmlFor="month-select" className="sr-only">Select Month</label>
-             <select 
-               id="month-select"
-               value={selectedDropdownValue} 
-               onChange={handleMonthChange}
-               disabled={monthsLoading}
-               className="p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-             >
-               {monthsLoading ? (
-                 <option>Loading months...</option>
-               ) : (
-                 availableMonths.map(opt => (
-                   <option key={`${opt.year}-${opt.month}`} value={`${opt.year}-${opt.month}`}>
-                     {opt.label} {opt.receiptCount ? `(${opt.receiptCount} receipts)` : ''}
-                   </option>
-                 ))
-               )}
-             </select>
-           </div>
-         </div>
-        
-        {/* Key Metrics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-          <MetricCard title="Total Spending" value={formatCurrency(data.totalSpending)} />
-          <MetricCard title="Receipts Processed" value={data.totalReceiptsProcessed.toString()} />
-          <MetricCard title="Avg. Transaction Value" value={formatCurrency(data.averageTransactionValue)} />
-        </div>
+      <div className="min-h-[calc(100vh-57px)] bg-[var(--bg-primary)] p-4 sm:p-6">
+        <div className="max-w-5xl mx-auto space-y-5">
+          {/* Header with Time Period Pills */}
+          <div className="animate-fade-in">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+              <div>
+                <h1 className="text-display text-2xl sm:text-3xl text-[var(--text-primary)]">Spending Insights</h1>
+                <p className="text-[var(--text-muted)] text-sm mt-1">{data.month}</p>
+              </div>
+            </div>
+            
+            {/* Time Period Pills */}
+            <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0">
+              {TIME_PERIODS.map((period) => (
+                <button
+                  key={period.id}
+                  onClick={() => setSelectedPeriod(period.id)}
+                  className={`shrink-0 px-3 py-1.5 text-xs font-medium transition-all uppercase tracking-wide ${
+                    selectedPeriod === period.id
+                      ? 'bg-[#111] text-white'
+                      : 'bg-white text-[var(--text-secondary)] border border-dashed border-[var(--border-subtle)] hover:border-[#111]'
+                  }`}
+                >
+                  <span className="sm:hidden">{period.shortLabel}</span>
+                  <span className="hidden sm:inline">{period.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
-        {/* Spending Categories (Treemap) */}
-        <div className="bg-white p-4 rounded-lg shadow space-y-4">
-            <h3 className="text-lg font-semibold text-gray-700">Spending by Category</h3>
-            {treemapChartData && treemapChartData.length > 0 ? (
-                <div style={{ width: '100%', height: 400 }}> 
-                    <ResponsiveContainer>
-                        <Treemap
-                            data={treemapChartData}
-                            dataKey="size" // Key for rectangle size
-                            // ratio={4/3} // Aspect ratio of cells
-                            stroke="#fff" // Border color of cells
-                            fill="#8884d8" // Default fill color
-                            // isAnimationActive={false} // Disable animation if preferred
-                        >
-                            {/* Add a tooltip - Use custom or default */}
-                            <Tooltip content={renderCustomTreemapTooltip}/>
-                        </Treemap>
-                    </ResponsiveContainer>
+          {/* Key Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="card-elevated p-5 animate-fade-in-up stagger-1">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">MET-01</span>
+                <span className="bg-[#111] text-white text-[10px] px-2 py-0.5 uppercase tracking-wide">Total</span>
+              </div>
+              <p className="text-mono text-2xl font-semibold text-[var(--text-primary)]">{formatCurrency(data.totalSpending)}</p>
+              <p className="text-[10px] text-[var(--text-muted)] uppercase mt-2">Total Spent</p>
+            </div>
+
+            <div className="card-elevated p-5 animate-fade-in-up stagger-2">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">MET-02</span>
+                <span className="bg-[#111] text-white text-[10px] px-2 py-0.5 uppercase tracking-wide">Count</span>
+              </div>
+              <p className="text-mono text-2xl font-semibold text-[var(--text-primary)]">{data.totalReceiptsProcessed}</p>
+              <p className="text-[10px] text-[var(--text-muted)] uppercase mt-2">Receipts</p>
+            </div>
+
+            <div className="card-elevated p-5 animate-fade-in-up stagger-3">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">MET-03</span>
+                <span className="bg-[#111] text-white text-[10px] px-2 py-0.5 uppercase tracking-wide">Average</span>
+              </div>
+              <p className="text-mono text-2xl font-semibold text-[var(--text-primary)]">{formatCurrency(data.averageTransactionValue)}</p>
+              <p className="text-[10px] text-[var(--text-muted)] uppercase mt-2">Per Trip</p>
+            </div>
+          </div>
+
+          {/* Category Breakdown */}
+          <div className="card-elevated p-5 animate-fade-in-up stagger-4">
+            <div className="flex items-center justify-between mb-5">
+              <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">CAT-01</span>
+              <span className="bg-[#111] text-white text-[10px] px-2 py-0.5 uppercase tracking-wide">Categories</span>
+            </div>
+            <h3 className="text-sm font-medium text-[var(--text-primary)] uppercase tracking-wide mb-4">Spending Breakdown</h3>
+            {pieData.length > 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Pie Chart */}
+                <div className="h-[280px]">
+                  <ResponsiveContainer>
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={2}
+                        dataKey="size"
+                      >
+                        {pieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={renderCustomPieTooltip} />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-            ) : (
-                <p className="text-gray-500 italic">No category spending data available for this month.</p>
-            )}
-        </div>
-
-        {/* Spending by Day Section (Area Chart) */}
-        <div className="bg-white p-4 rounded-lg shadow space-y-4">
-            <h3 className="text-lg font-semibold text-gray-700">Spending by Day</h3>
-            {areaChartData.length > 0 ? (
-                 // Increased height slightly for better visibility in its own row
-                <div style={{ width: '100%', height: 400 }}> 
-                    <ResponsiveContainer>
-                        <AreaChart
-                            data={areaChartData}
-                            margin={{
-                                top: 10, right: 30, left: 20, bottom: 0, 
+                
+                {/* Category List */}
+                <div className="space-y-3">
+                  {pieData.slice(0, 6).map((category, index) => {
+                    const percentage = totalCategories > 0 ? (category.size / totalCategories) * 100 : 0;
+                    return (
+                      <div key={category.name} className="animate-slide-in" style={{ animationDelay: `${index * 0.1}s` }}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-[var(--text-primary)] font-medium capitalize">
+                            {category.name.replace('_', ' ')}
+                          </span>
+                          <span className="text-mono text-[var(--text-secondary)]">
+                            {formatCurrency(category.size)}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-[var(--bg-elevated)] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{ 
+                              width: `${percentage}%`,
+                              backgroundColor: PIE_COLORS[index % PIE_COLORS.length]
                             }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="day" padding={{ left: 10, right: 10 }}/>
-                            <YAxis tickFormatter={(value: number) => formatCurrency(value)} width={80} /> 
-                            <Tooltip content={renderCustomAreaTooltip}/> 
-                            <Legend />
-                            <Area type="monotone" dataKey="total_amount" name="Spending" stroke="#8884d8" fill="#8884d8" />
-                        </AreaChart>
-                    </ResponsiveContainer>
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
+              </div>
             ) : (
-                <p className="text-gray-500 italic">No daily spending data available for this month.</p>
+              <p className="text-[var(--text-muted)] text-center py-8">No category data available</p>
             )}
-        </div>
+          </div>
 
+          {/* Spending Timeline */}
+          <div className="card-elevated p-5 animate-fade-in-up stagger-5">
+            <div className="flex items-center justify-between mb-5">
+              <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">TML-01</span>
+              <span className="bg-[#111] text-white text-[10px] px-2 py-0.5 uppercase tracking-wide">Timeline</span>
+            </div>
+            <h3 className="text-sm font-medium text-[var(--text-primary)] uppercase tracking-wide mb-4">Daily Spending</h3>
+            {data.spendingByDay.length > 0 ? (
+              <div className="h-[300px]">
+                <ResponsiveContainer>
+                  <AreaChart
+                    data={data.spendingByDay}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="spendingGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--accent-gold)" stopOpacity={0.3}/>
+                        <stop offset="100%" stopColor="var(--accent-gold)" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid 
+                      strokeDasharray="3 3" 
+                      stroke="var(--border-subtle)" 
+                      vertical={false}
+                    />
+                    <XAxis 
+                      dataKey="day" 
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+                      padding={{ left: 10, right: 10 }}
+                    />
+                    <YAxis 
+                      tickFormatter={formatCurrencyShort}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+                      width={50}
+                    />
+                    <Tooltip content={renderCustomAreaTooltip} />
+                    <Area 
+                      type="monotone" 
+                      dataKey="total_amount" 
+                      stroke="var(--accent-gold)" 
+                      strokeWidth={2}
+                      fill="url(#spendingGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-[var(--text-muted)] text-center py-8">No daily spending data available</p>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
 
-  return null; // Should not be reached in normal flow
-}
-
-// Simple reusable card component for metrics
-interface MetricCardProps {
-  title: string;
-  value: string;
-}
-
-function MetricCard({ title, value }: MetricCardProps) {
-  return (
-    <div className="bg-white p-4 rounded-lg shadow">
-      <h4 className="text-sm font-medium text-gray-500 mb-1">{title}</h4>
-      <p className="text-xl font-semibold text-gray-800">{value}</p>
-    </div>
-  );
+  return null;
 } 

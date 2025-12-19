@@ -7,7 +7,6 @@ import ReceiptView from '@/components/ReceiptView';
 type Status = 'idle' | 'uploading' | 'processing' | 'success' | 'error' | 'partial_success';
 type ActiveTab = 'upload' | 'receipts' | 'dashboard';
 
-// Type matching the backend response structure for each file
 interface ProcessResult {
   fileName: string;
   status: 'success' | 'error';
@@ -19,50 +18,42 @@ interface ProcessResult {
 
 export default function HomePage() {
   const [status, setStatus] = useState<Status>('idle');
-  const [statusMessage, setStatusMessage] = useState<string>('Ready to upload receipt(s).');
+  const [statusMessage, setStatusMessage] = useState<string>('Snap a photo of your receipt to get started');
   const [results, setResults] = useState<ProcessResult[]>([]); 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('upload');
 
   const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (!files || files.length === 0) {
-      return;
-    }
+    if (!files || files.length === 0) return;
 
     const MAX_FILES = 5;
     if (files.length > MAX_FILES) {
-        setStatus('error');
-        setStatusMessage(`Error: Cannot upload more than ${MAX_FILES} files at a time.`);
-        // Clear file input
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        return;
+      setStatus('error');
+      setStatusMessage(`Maximum ${MAX_FILES} files allowed at once`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
     }
 
-    // Reset previous results
     setResults([]);
     setStatus('uploading');
-    const fileNames = Array.from(files).map(f => f.name).join(', ');
-    setStatusMessage(`Uploading ${files.length} file(s): ${fileNames}...`);
+    setStatusMessage(`Uploading ${files.length} receipt${files.length > 1 ? 's' : ''}...`);
 
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
-      formData.append('receiptImages', files[i]); // Key must match backend: receiptImages
+      formData.append('receiptImages', files[i]);
     }
 
     try {
       setStatus('processing');
-      setStatusMessage(`Processing ${files.length} receipt(s)...`);
+      setStatusMessage('Analyzing your receipts...');
 
       const response = await fetch('/api/process-receipt', {
         method: 'POST',
         body: formData,
       });
 
-      // Reset file input value *after* fetch starts, allowing re-uploading same files if needed
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
 
       const responseData: ProcessResult[] | { message: string } = await response.json();
 
@@ -72,56 +63,46 @@ export default function HomePage() {
         const errorCount = responseData.length - successCount;
 
         if (errorCount === 0) {
-            setStatus('success');
-            setStatusMessage(`Successfully processed ${successCount} receipt(s).`);
+          setStatus('success');
+          setStatusMessage(`${successCount} receipt${successCount > 1 ? 's' : ''} processed successfully`);
         } else if (successCount > 0) {
-            setStatus('partial_success');
-            setStatusMessage(`Processed ${responseData.length} receipts: ${successCount} success, ${errorCount} error(s).`);
+          setStatus('partial_success');
+          setStatusMessage(`${successCount} of ${responseData.length} receipts processed`);
         } else {
-            setStatus('error');
-            setStatusMessage(`Failed to process all ${responseData.length} receipts.`);
+          setStatus('error');
+          setStatusMessage('Failed to process receipts');
         }
-
       } else {
-        // Handle non-array responses or non-ok status codes
-        const errorMsg = (responseData as { message: string })?.message || 'Failed to process receipts. Unknown error.';
+        const errorMsg = (responseData as { message: string })?.message || 'Unknown error occurred';
         setStatus('error');
-        setStatusMessage(`Error: ${response.statusText} - ${errorMsg}`);
-        setResults([]); // Clear results on general failure
-        console.error('API Error:', response.status, response.statusText, responseData);
+        setStatusMessage(errorMsg);
+        setResults([]);
       }
-
-    } catch (error) {
-      console.error("Network or other error:", error);
+    } catch {
       setStatus('error');
-      setStatusMessage('An error occurred during upload/processing. Please check connection and try again.');
-      setResults([]); // Clear results on network error
-      // Reset file input in case of error before fetch started
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      setStatusMessage('Connection error. Please try again.');
+      setResults([]);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
+  const handleUploadClick = () => fileInputRef.current?.click();
 
-  const getStatusColor = () => {
-    switch (status) {
-      case 'success': return 'text-green-600';
-      case 'partial_success': return 'text-yellow-600';
-      case 'error': return 'text-red-600';
-      case 'uploading':
-      case 'processing': return 'text-blue-600';
-      default: return 'text-gray-600';
-    }
-  };
-
-  // Component for the Upload Section
   const UploadSection = () => (
-    <div className="w-full max-w-md text-center">
-      <h1 className="text-2xl font-bold mb-6 text-gray-800 font-roboto">Receipt Processor</h1>
+    <div className="w-full max-w-lg text-center px-6 animate-fade-in-up">
+      <div className="mb-8">
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] mb-6">
+          <svg className="w-10 h-10 text-[var(--accent-gold)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+          </svg>
+        </div>
+        <h1 className="text-display text-4xl md:text-5xl text-[var(--text-primary)] mb-3">
+          Receipt Insights
+        </h1>
+        <p className="text-[var(--text-secondary)] text-lg">
+          Track spending, discover patterns, save smarter
+        </p>
+      </div>
       
       <input 
         type="file"
@@ -136,61 +117,76 @@ export default function HomePage() {
       <button
         onClick={handleUploadClick}
         disabled={status === 'uploading' || status === 'processing'}
-        className={`w-full px-6 py-4 text-lg font-semibold text-white rounded-lg shadow-md transition-colors duration-200 font-roboto ${
-          status === 'uploading' || status === 'processing'
-            ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50'
-        }`}
+        className="btn-primary w-full text-lg mb-6"
       >
-        {status === 'uploading' ? 'Uploading...' : status === 'processing' ? 'Processing...' : 'Upload Receipt Image(s)'}
+        {status === 'uploading' ? (
+          <span className="flex items-center justify-center gap-2">
+            <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+            </svg>
+            Uploading...
+          </span>
+        ) : status === 'processing' ? (
+          <span className="flex items-center justify-center gap-2">
+            <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+            </svg>
+            Analyzing...
+          </span>
+        ) : (
+          <span className="flex items-center justify-center gap-2">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            Upload Receipt
+          </span>
+        )}
       </button>
 
-      <p className={`mt-6 text-md font-medium ${getStatusColor()} font-roboto`}>
+      <p className={`text-sm transition-all duration-300 ${
+        status === 'success' ? 'text-[var(--accent-emerald)]' :
+        status === 'partial_success' ? 'text-[var(--accent-amber)]' :
+        status === 'error' ? 'text-[var(--accent-rose)]' :
+        status === 'uploading' || status === 'processing' ? 'text-[var(--accent-sky)]' :
+        'text-[var(--text-muted)]'
+      }`}>
         {statusMessage}
       </p>
 
       {results.length > 0 && (
-        <div className="mt-4 p-4 border border-gray-200 rounded-lg bg-white text-left text-sm font-roboto">
-          <h3 className="font-semibold mb-2 text-gray-700">Processing Results:</h3>
-          <ul className="space-y-2">
+        <div className="mt-8 card-elevated p-5 text-left animate-fade-in-up">
+          <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-4">Results</h3>
+          <ul className="space-y-3">
             {results.map((result, index) => (
-              <li key={index} className={`p-3 rounded-lg border ${
+              <li 
+                key={index} 
+                className={`p-4 rounded-xl border animate-fade-in-up ${
                   result.status === 'success' 
-                    ? 'bg-green-50 border-green-200' 
-                    : 'bg-red-50 border-red-200'
-              }`}>
-                <div className="flex justify-between items-start mb-1">
-                  <span className="font-medium text-gray-800 truncate pr-2" title={result.fileName}>
+                    ? 'bg-[var(--accent-emerald)]/10 border-[var(--accent-emerald)]/20' 
+                    : 'bg-[var(--accent-rose)]/10 border-[var(--accent-rose)]/20'
+                }`}
+                style={{ animationDelay: `${index * 0.1}s` }}
+              >
+                <div className="flex justify-between items-start gap-3">
+                  <span className="font-medium text-[var(--text-primary)] truncate flex-1" title={result.fileName}>
                     {result.fileName}
                   </span>
-                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-semibold shrink-0 ${
                     result.status === 'success' 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-red-100 text-red-800'
+                      ? 'bg-[var(--accent-emerald)]/20 text-[var(--accent-emerald)]' 
+                      : 'bg-[var(--accent-rose)]/20 text-[var(--accent-rose)]'
                   }`}>
-                    {result.status === 'success' ? 'Success' : 'Failed'}
+                    {result.status === 'success' ? 'Done' : 'Failed'}
                   </span>
                 </div>
                 
-                <div className="text-xs text-gray-600 mt-1">
-                  {result.status === 'success' && result.receiptId && (
-                    <span className="text-green-700">Receipt ID: {result.receiptId}</span>
-                  )}
-                  
-                  {result.status === 'error' && (
-                    <div className="space-y-1">
-                      <div className="text-red-700">{result.message}</div>
-                      {result.shouldRetry && (
-                        <div className="flex items-center text-orange-600">
-                          <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                          </svg>
-                          <span>This error may be temporary - try uploading again</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {result.status === 'error' && (
+                  <p className="text-sm text-[var(--accent-rose)] mt-2 opacity-80">
+                    {result.message}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
@@ -200,59 +196,53 @@ export default function HomePage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 font-roboto">
-      {/* Mobile-first Tab Navigation */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
-        <div className="px-4">
+    <div className="min-h-screen bg-[var(--bg-primary)]">
+      {/* Navigation */}
+      <nav className="sticky top-0 z-50 bg-[var(--bg-secondary)]/80 backdrop-blur-xl border-b border-[var(--border-subtle)]">
+        <div className="max-w-5xl mx-auto px-4">
           <div className="flex">
-            <button
-              onClick={() => setActiveTab('upload')}
-              className={`flex-1 py-3 px-4 text-sm font-medium transition-colors font-roboto ${
-                activeTab === 'upload'
-                  ? 'text-blue-600 bg-blue-50 border-b-2 border-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Upload
-            </button>
-            <button
-              onClick={() => setActiveTab('receipts')}
-              className={`flex-1 py-3 px-4 text-sm font-medium transition-colors font-roboto ${
-                activeTab === 'receipts'
-                  ? 'text-blue-600 bg-blue-50 border-b-2 border-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Receipts
-            </button>
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`flex-1 py-3 px-4 text-sm font-medium transition-colors font-roboto ${
-                activeTab === 'dashboard'
-                  ? 'text-blue-600 bg-blue-50 border-b-2 border-blue-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Analytics
-            </button>
+            {[
+              { id: 'upload', label: 'Upload', icon: (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+              )},
+              { id: 'receipts', label: 'Receipts', icon: (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              )},
+              { id: 'dashboard', label: 'Insights', icon: (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              )}
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as ActiveTab)}
+                className={`flex-1 py-4 px-4 text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2 ${
+                  activeTab === tab.id ? 'tab-active' : 'tab-inactive'
+                }`}
+              >
+                {tab.icon}
+                <span className="hidden sm:inline">{tab.label}</span>
+              </button>
+            ))}
           </div>
         </div>
-      </div>
+      </nav>
 
-      {/* Main Content Area */}
-      <div className="flex-1">
+      {/* Content */}
+      <main className="flex-1">
         {activeTab === 'upload' && (
-          <div className="flex items-center justify-center p-4 min-h-[calc(100vh-64px)]">
+          <div className="flex items-center justify-center min-h-[calc(100vh-57px)] py-12">
             <UploadSection />
           </div>
         )}
-        {activeTab === 'receipts' && (
-          <ReceiptView onBack={() => setActiveTab('upload')} />
-        )}
-        {activeTab === 'dashboard' && (
-          <Dashboard />
-        )}
-      </div>
+        {activeTab === 'receipts' && <ReceiptView onBack={() => setActiveTab('upload')} />}
+        {activeTab === 'dashboard' && <Dashboard />}
+      </main>
     </div>
   );
 }
